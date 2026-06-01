@@ -99,7 +99,8 @@ model Device {
   updatedAt   DateTime     @updatedAt
   sensorDatas SensorData[]
 
-  statusLogs DeviceStatusLog[]
+  statusLogs  DeviceStatusLog[]
+  automations Automation[]
 }
 
 model DeviceStatusLog {
@@ -128,6 +129,7 @@ model DeviceComponents {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   sensorDatas SensorData[]
+  automations Automation[]
 }
 
 model SensorData {
@@ -144,6 +146,26 @@ model SensorData {
   unit  String?
 
   deviceTime DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Automation {
+  id String @id @default(uuid())
+
+  deviceId String
+  device   Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  componentId String
+  component   DeviceComponents? @relation(fields: [componentId], references: [id])
+
+  action String
+
+  time     String
+  duration Int
+
+  isActive Boolean
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -4,6 +4,29 @@ import logger from "../src/utils/logger.js";
 import {prisma} from "../src/config/prisma.js";
 
 async function main() {
+  // ==========================================
+  // 1. VALIDASI ENV (Wajib Ada)
+  // ==========================================
+  const superAdminEmail = process.env.SEED_ADMIN_EMAIL;
+  const superAdminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const ownerEmail = process.env.SEED_OWNER_EMAIL;
+  const ownerPassword = process.env.SEED_OWNER_PASSWORD;
+
+  if (
+    !superAdminEmail ||
+    !superAdminPassword ||
+    !ownerEmail ||
+    !ownerPassword
+  ) {
+    logger.error(
+      "Gagal menjalankan seed: Variabel lingkungan SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, SEED_OWNER_EMAIL, dan SEED_OWNER_PASSWORD wajib diisi di file .env!",
+    );
+    process.exit(1);
+  }
+
+  // ==========================================
+  // 2. SEED SUPER_ADMIN
+  // ==========================================
   const existingSuperAdmin = await prisma.user.findFirst({
     where: {
       role: "SUPER_ADMIN",
@@ -13,12 +36,12 @@ async function main() {
   if (existingSuperAdmin) {
     logger.info("SUPER_ADMIN already exists");
   } else {
-    const hashPassword = await bcrypt.hash("superadmin123", 10);
+    const hashPassword = await bcrypt.hash(superAdminPassword, 10);
 
     await prisma.user.create({
       data: {
         name: "Super Admin",
-        email: "superadmin@GH.com",
+        email: superAdminEmail,
         password: hashPassword,
         role: "SUPER_ADMIN",
         isActive: true,
@@ -28,13 +51,15 @@ async function main() {
     logger.info("SUPER_ADMIN created successfully");
   }
 
-  const ownerEmail = "owner@GH.com";
+  // ==========================================
+  // 3. SEED OWNER
+  // ==========================================
   let ownerUser = await prisma.user.findUnique({
     where: {email: ownerEmail},
   });
 
   if (!ownerUser) {
-    const hashPassword = await bcrypt.hash("owner123", 10);
+    const hashPassword = await bcrypt.hash(ownerPassword, 10);
 
     ownerUser = await prisma.user.create({
       data: {
@@ -50,6 +75,9 @@ async function main() {
     logger.info("OWNER already exists");
   }
 
+  // ==========================================
+  // 4. SEED GREENHOUSE
+  // ==========================================
   let greenhouse = await prisma.greenhouse.findFirst({
     where: {
       ownerId: ownerUser.id,
@@ -69,6 +97,9 @@ async function main() {
     logger.info("GREENHOUSE already exists");
   }
 
+  // ==========================================
+  // 5. SEED AREA
+  // ==========================================
   let area = await prisma.area.findFirst({
     where: {
       greenhouseId: greenhouse.id,
@@ -88,6 +119,9 @@ async function main() {
     logger.info("AREA already exists");
   }
 
+  // ==========================================
+  // 6. SEED DEVICE & COMPONENTS
+  // ==========================================
   const dummyMAC = "AA:BB:CC:DD:EE:FF";
   let device = await prisma.device.findUnique({
     where: {macAddress: dummyMAC},
