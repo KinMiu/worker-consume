@@ -136,7 +136,7 @@ export const initAggregator = () => {
   logger.info("Aggregator Multi-Component Ready!");
   setInterval(flushBufferToJson, 60000);
 
-  cron.schedule("30 15 * * *", async () => {
+  cron.schedule("00 01 * * *", async () => {
     logger.info("Midnight Sync: Memindahkan JSON ke database");
 
     if (!fs.existsSync(BUFFER_FILE)) return;
