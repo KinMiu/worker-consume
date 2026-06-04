@@ -12,10 +12,11 @@ let statsBuffer = {};
 export const processSensorData = async (data, message, channel) => {
   try {
     // console.log(data);
-    const macAddress = data.macAddress;
+    const macAddress = data.mac;
     const deviceTime = data.deviceTime;
 
     const isDeviceValid = await handleDevicePresence(macAddress);
+    // console.log("isDeviceValid", isDeviceValid);
 
     if (!isDeviceValid) {
       channel.ack(message);
@@ -40,7 +41,6 @@ export const processSensorData = async (data, message, channel) => {
           deviceTime: deviceTime,
         };
       }
-      // console.log("statsBuffer", componentId);
 
       const compStats = statsBuffer[componentId];
 
@@ -74,6 +74,7 @@ export const handleDevicePresence = async (macAddress) => {
         macAddress: macAddress,
       },
     });
+    // console.log(device);
 
     if (!device) {
       logger.warn(
@@ -92,6 +93,8 @@ export const handleDevicePresence = async (macAddress) => {
         lastSeen: now,
       },
     });
+
+    return true;
   } catch (error) {
     logger.error(`Gagal memproses status presence ${macAddress}`, error);
     return false;
@@ -120,15 +123,17 @@ const flushBufferToJson = () => {
     }
   }
 
+  // console.log(averagedData);
+
   if (averagedData.length > 0) {
     let existingData = [];
     if (fs.existsSync(BUFFER_FILE)) {
-      console.log("Ini berjalan");
+      // console.log("Ini berjalan");
       const fileContent = fs.readFileSync(BUFFER_FILE, "utf-8");
       existingData = fileContent ? JSON.parse(fileContent) : [];
     }
     // console.log("tes");
-    console.log("Ini berjalan juga");
+    // console.log("Ini berjalan juga");
     const updateData = [...existingData, ...averagedData];
     fs.writeFileSync(BUFFER_FILE, JSON.stringify(updateData, null, 2));
   }

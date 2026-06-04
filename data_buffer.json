@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "macAddress": "C4:D8:D5:13:9C:DF",
+    "componentId": "1b307af9-a55d-4d65-841b-bf269a2d54bb",
+    "value": 28.9,
+    "createdAt": "2026-06-04T23:30:19.913Z"
+  },
+  {
+    "macAddress": "C4:D8:D5:13:9C:DF",
+    "componentId": "83592111-694f-4cea-ad4e-ada0cc44acae",
+    "value": 77,
+    "createdAt": "2026-06-04T23:30:19.913Z"
+  }
+]
