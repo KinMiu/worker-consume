@@ -57,7 +57,8 @@ export const processSensorData = async (data, message, channel) => {
       if (isFirstData || isSignificantChange) {
         compStats.sum += currentValue;
         compStats.count += 1;
-        compStats.lastSavedValue = currentValue;
+        compStats.lastSavedValue = currentValue; // Amankan angka baru (misal 26.0)
+        compStats.deviceTime = deviceTime;
       } else {
       }
       // console.log(compStats);
