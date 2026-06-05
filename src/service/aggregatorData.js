@@ -4,7 +4,7 @@ import cron from "node-cron";
 import fs from "fs";
 import {prisma} from "../config/prisma.js";
 
-const BUFFER_FILE = path.join(process.cwd(), "data_buffer.json");
+const BUFFER_FILE = path.join(__dirname, "../../data_buffer.json");
 const THRESHOLD = 1.0;
 
 let statsBuffer = {};
