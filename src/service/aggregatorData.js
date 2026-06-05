@@ -3,6 +3,10 @@ import path from "path";
 import cron from "node-cron";
 import fs from "fs";
 import {prisma} from "../config/prisma.js";
+import {fileURLToPath} from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const BUFFER_FILE = path.join(__dirname, "../../data_buffer.json");
 const THRESHOLD = 1.0;
