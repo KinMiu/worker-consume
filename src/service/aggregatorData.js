@@ -128,7 +128,7 @@ const flushBufferToJson = () => {
     }
   }
 
-  // console.log(averagedData);
+  console.log(averagedData);
 
   if (averagedData.length > 0) {
     let existingData = [];
