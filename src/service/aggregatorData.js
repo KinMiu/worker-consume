@@ -132,12 +132,12 @@ const flushBufferToJson = () => {
   if (averagedData.length > 0) {
     let existingData = [];
     if (fs.existsSync(BUFFER_FILE)) {
-      // console.log("Ini berjalan");
+      console.log("Ini berjalan");
       const fileContent = fs.readFileSync(BUFFER_FILE, "utf-8");
       existingData = fileContent ? JSON.parse(fileContent) : [];
     }
     // console.log("tes");
-    // console.log("Ini berjalan juga");
+    console.log("Ini berjalan juga");
     const updateData = [...existingData, ...averagedData];
     fs.writeFileSync(BUFFER_FILE, JSON.stringify(updateData, null, 2));
   }
