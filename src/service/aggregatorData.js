@@ -1,210 +1,170 @@
 import logger from "../utils/logger.js";
-import path from "path";
-import cron from "node-cron";
-import fs from "fs";
 import {prisma} from "../config/prisma.js";
-import {fileURLToPath} from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const BUFFER_FILE = path.join(__dirname, "../../data_buffer.json");
-const THRESHOLD = 1.0;
-
+// In-memory buffer for sliding 1-minute sensor average
 let statsBuffer = {};
 
+// In-memory cache for MAC Address -> Device ID
+const deviceCache = new Map();
+
+// Helper to resolve and cache Device ID from MAC Address
+async function getDeviceIdByMac(macAddress) {
+  if (!macAddress) return null;
+
+  if (deviceCache.has(macAddress)) {
+    return deviceCache.get(macAddress);
+  }
+
+  try {
+    const device = await prisma.device.findUnique({
+      where: {macAddress},
+      select: {id: true, macAddress: true},
+    });
+
+    if (device) {
+      deviceCache.set(macAddress, device.id);
+      return device.id;
+    }
+  } catch (err) {
+    logger.error(`[Aggregator] Failed to lookup device by MAC ${macAddress}:`, err.message);
+  }
+
+  return null;
+}
+
+/**
+ * Ingest and accumulate incoming sensor readings in RAM
+ */
 export const processSensorData = async (data, message, channel) => {
   try {
-    // console.log(data);
-    const macAddress = data.mac;
-    const deviceTime = data.deviceTime;
+    const macAddress = data.macAddress || data.mac || data.macaddress;
 
-    const isDeviceValid = await handleDevicePresence(macAddress);
-    // console.log("isDeviceValid", isDeviceValid);
-
-    if (!isDeviceValid) {
+    if (!macAddress) {
+      logger.warn("[Aggregator] Received payload without MAC address. Skipping.");
       channel.ack(message);
       return;
     }
 
+    const deviceTime = data.deviceTime || null;
+
     for (const [key, value] of Object.entries(data)) {
-      if (key === "status" || key === "macAddress" || key === "deviceTime")
+      if (
+        key === "status" ||
+        key === "macAddress" ||
+        key === "mac" ||
+        key === "macaddress" ||
+        key === "deviceTime"
+      ) {
         continue;
+      }
 
       const componentId = key;
-      const currentValue = parseFloat(value);
+      const numVal = parseFloat(value);
 
-      if (isNaN(currentValue)) continue;
+      if (isNaN(numVal)) continue;
 
       if (!statsBuffer[componentId]) {
         statsBuffer[componentId] = {
+          macAddress: macAddress,
           sum: 0,
           count: 0,
-          lastSavedValue: null,
-          macAddress: macAddress,
-          deviceTime: deviceTime,
+          lastDeviceTime: deviceTime,
         };
       }
 
       const compStats = statsBuffer[componentId];
-
-      const isFirstData = compStats.lastSavedValue === null;
-      const diff = isFirstData
-        ? 0
-        : Math.abs(currentValue - compStats.lastSavedValue);
-      const isSignificantChange = diff >= THRESHOLD;
-
-      if (isFirstData || isSignificantChange) {
-        compStats.sum += currentValue;
-        compStats.count += 1;
-        compStats.lastSavedValue = currentValue; // Amankan angka baru (misal 26.0)
-        compStats.deviceTime = deviceTime;
-      } else {
+      compStats.sum += numVal;
+      compStats.count += 1;
+      if (deviceTime) {
+        compStats.lastDeviceTime = deviceTime;
       }
-      // console.log(compStats);
     }
 
     channel.ack(message);
-    // channel.nack(message, false, true);
   } catch (error) {
-    logger.error("Failed to process data: ", error);
-    channel.nack(message, false, true);
+    logger.error("[Aggregator] Failed to process incoming sensor message:", error);
+    // Acknowledge to prevent poison pill message from choking the queue
+    channel.ack(message);
   }
 };
 
-export const handleDevicePresence = async (macAddress) => {
-  try {
-    const device = await prisma.device.findUnique({
-      where: {
-        macAddress: macAddress,
-      },
-    });
-    // console.log(device);
+/**
+ * Flush accumulated in-memory sensor averages to PostgreSQL every 60 seconds
+ */
+const flushBufferToDatabase = async () => {
+  // Swap snapshot atomically
+  const currentSnapshot = statsBuffer;
+  statsBuffer = {};
 
-    if (!device) {
+  const componentKeys = Object.keys(currentSnapshot);
+  if (componentKeys.length === 0) {
+    return;
+  }
+
+  const now = new Date();
+  const recordsToInsert = [];
+  const updatedDeviceIds = new Set();
+
+  for (const componentId of componentKeys) {
+    const compStats = currentSnapshot[componentId];
+    if (compStats.count === 0) continue;
+
+    const avgValue = parseFloat((compStats.sum / compStats.count).toFixed(2));
+    const deviceId = await getDeviceIdByMac(compStats.macAddress);
+
+    if (!deviceId) {
       logger.warn(
-        `Data dari MAC ${macAddress} ditolak: Device tidak terdaftar di DB`,
+        `[Aggregator] Device with MAC ${compStats.macAddress} not found in DB. Skipping component ${componentId}`,
       );
-      return false;
+      continue;
     }
 
-    const now = new Date();
+    updatedDeviceIds.add(deviceId);
 
-    await prisma.device.update({
-      where: {
-        macAddress: macAddress,
-      },
-      data: {
-        lastSeen: now,
-      },
+    recordsToInsert.push({
+      deviceId: deviceId,
+      componentId: componentId,
+      value: avgValue,
+      deviceTime: compStats.lastDeviceTime
+        ? new Date(compStats.lastDeviceTime)
+        : null,
+      createdAt: now,
     });
-
-    return true;
-  } catch (error) {
-    logger.error(`Gagal memproses status presence ${macAddress}`, error);
-    return false;
   }
-};
 
-const flushBufferToJson = () => {
-  const timeStamp = new Date();
-  const averagedData = [];
-
-  for (const componentId in statsBuffer) {
-    const compStats = statsBuffer[componentId];
-    // console.log(componentId);
-
-    if (compStats.count > 0) {
-      averagedData.push({
-        macAddress: compStats.macAddress,
-        componentId: componentId,
-        value: parseFloat((compStats.sum / compStats.count).toFixed(2)),
-        createdAt: timeStamp,
-        deviceTime: compStats.deviceTime,
+  if (recordsToInsert.length > 0) {
+    try {
+      // 1. Bulk insert averaged sensor records
+      await prisma.sensorData.createMany({
+        data: recordsToInsert,
+        skipDuplicates: true,
       });
 
-      compStats.sum = 0;
-      compStats.count = 0;
-    }
-  }
+      // 2. Batch update lastSeen for all active devices in 1 query
+      if (updatedDeviceIds.size > 0) {
+        await prisma.device.updateMany({
+          where: {
+            id: {in: Array.from(updatedDeviceIds)},
+          },
+          data: {
+            lastSeen: now,
+          },
+        });
+      }
 
-  console.log(averagedData);
-
-  if (averagedData.length > 0) {
-    let existingData = [];
-    if (fs.existsSync(BUFFER_FILE)) {
-      console.log("Ini berjalan");
-      const fileContent = fs.readFileSync(BUFFER_FILE, "utf-8");
-      existingData = fileContent ? JSON.parse(fileContent) : [];
+      logger.info(
+        `[Aggregator] Successfully flushed ${recordsToInsert.length} sensor records to DB (1-minute average for ${updatedDeviceIds.size} devices)`,
+      );
+    } catch (error) {
+      logger.error("[Aggregator] Error executing bulk insert to database:", error);
     }
-    // console.log("tes");
-    console.log("Ini berjalan juga");
-    const updateData = [...existingData, ...averagedData];
-    fs.writeFileSync(BUFFER_FILE, JSON.stringify(updateData, null, 2));
   }
 };
 
+/**
+ * Initialize periodic 1-minute aggregation flush
+ */
 export const initAggregator = () => {
-  logger.info("Aggregator Multi-Component Ready!");
-  setInterval(flushBufferToJson, 60000);
-
-  cron.schedule("00 18 * * *", async () => {
-    logger.info("Midnight Sync: Memindahkan JSON ke database");
-
-    if (!fs.existsSync(BUFFER_FILE)) return;
-
-    try {
-      const fileContent = fs.readFileSync(BUFFER_FILE, "utf-8");
-      const dataBuffer = JSON.parse(fileContent);
-
-      if (dataBuffer.length > 0) {
-        const uniqueMac = [...new Set(dataBuffer.map((d) => d.macAddress))];
-
-        const deviceInDB = await prisma.device.findMany({
-          where: {macAddress: {in: uniqueMac}},
-          select: {
-            id: true,
-            macAddress: true,
-          },
-        });
-
-        const deviceMap = {};
-        deviceInDB.forEach((dev) => {
-          deviceMap[dev.macAddress] = dev.id;
-        });
-
-        const finalDataForDB = [];
-
-        for (const item of dataBuffer) {
-          const deviceId = deviceMap[item.macAddress];
-          if (deviceId) {
-            finalDataForDB.push({
-              deviceId: deviceId,
-              componentId: item.componentId,
-              value: item.value,
-              deviceTime: item.deviceTime ? new Date(item.deviceTime) : null,
-              createdAt: new Date(item.createdAt),
-            });
-          } else {
-            logger.warn(
-              `Device with MAC ${item.macAddress} not found in DB. The data was skipped`,
-            );
-          }
-        }
-
-        if (finalDataForDB.length > 0) {
-          await prisma.sensorData.createMany({
-            data: finalDataForDB,
-          });
-
-          logger.info(`Success synchronize data to DB`);
-        }
-
-        fs.writeFileSync(BUFFER_FILE, JSON.stringify([]));
-      }
-    } catch (error) {
-      console.log(error);
-      logger.error("Failed to synchronize: ", error);
-    }
-  });
+  logger.info("[Aggregator] In-Memory Sensor Aggregator Ready (60s Batch Interval)");
+  setInterval(flushBufferToDatabase, 60000);
 };

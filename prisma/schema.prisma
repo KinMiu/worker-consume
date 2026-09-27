@@ -87,8 +87,8 @@ model Device {
 
   lastSeen DateTime?
 
-  greenhouseId String
-  greenhouse   Greenhouse @relation(fields: [greenhouseId], references: [id], onDelete: Cascade)
+  greenhouseId String?
+  greenhouse   Greenhouse? @relation(fields: [greenhouseId], references: [id], onDelete: Cascade)
 
   areaId String?
   area   Area?   @relation(fields: [areaId], references: [id], onDelete: SetNull)
@@ -113,6 +113,8 @@ model DeviceStatusLog {
   reason String?
 
   createAt DateTime @default(now())
+
+  @@index([deviceId, createAt])
 }
 
 model DeviceComponents {
@@ -149,6 +151,9 @@ model SensorData {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([deviceId, createdAt])
+  @@index([componentId, createdAt])
 }
 
 model Automation {

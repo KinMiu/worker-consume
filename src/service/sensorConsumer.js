@@ -4,41 +4,40 @@ import {processSensorData} from "./aggregatorData.js";
 
 export const startSensorConsumer = async () => {
   try {
-    // console.log("tes");
     const channel = getChannel();
-    const queueName = "sensor-tes";
+    const queueName = process.env.AMQP_SENSOR_QUEUE || "sensor-tes";
 
     await channel.assertQueue(queueName, {durable: true});
 
     channel.prefetch(200);
 
-    logger.info(`Consumer standby! Antrean: ${queueName}`);
+    logger.info(`[SensorConsumer] Standby listening on queue: ${queueName}`);
 
     channel.consume(queueName, (message) => {
       if (!message) return;
+
       try {
         const content = message.content.toString();
-
         const parsedData = JSON.parse(content);
-        // console.log(parsedData);
-        const routingKey = message.fields.routingKey;
 
-        const macAddress = routingKey.split(/[./]/)[1];
-        // console.log(macAddress);
-
-        if (macAddress) {
-          parsedData.macAddress = macAddress;
+        // Extract MAC address from routingKey if not present in payload
+        if (!parsedData.macAddress && !parsedData.mac && !parsedData.macaddress) {
+          const routingKey = message.fields.routingKey || "";
+          const parts = routingKey.split(/[./]/);
+          if (parts.length >= 2) {
+            parsedData.macAddress = parts[1];
+          } else if (routingKey) {
+            parsedData.macAddress = routingKey;
+          }
         }
-
-        // console.log(parsedData);
 
         processSensorData(parsedData, message, channel);
       } catch (error) {
-        logger.error("JSON Format error, message removed");
+        logger.error("[SensorConsumer] Malformed JSON payload received, removing message:", error.message);
         channel.ack(message);
       }
     });
   } catch (error) {
-    logger.error("Gagal menjalankan Sensor Consumer: ", error.message);
+    logger.error("[SensorConsumer] Failed to start Sensor Consumer:", error.message);
   }
 };
