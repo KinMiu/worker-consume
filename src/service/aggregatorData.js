@@ -35,13 +35,12 @@ async function getDeviceIdByMac(macAddress) {
 /**
  * Ingest and accumulate incoming sensor readings in RAM
  */
-export const processSensorData = async (data, message, channel) => {
+export const processSensorData = async (data) => {
   try {
     const macAddress = data.macAddress || data.mac || data.macaddress;
 
     if (!macAddress) {
       logger.warn("[Aggregator] Received payload without MAC address. Skipping.");
-      channel.ack(message);
       return;
     }
 
@@ -79,12 +78,8 @@ export const processSensorData = async (data, message, channel) => {
         compStats.lastDeviceTime = deviceTime;
       }
     }
-
-    channel.ack(message);
   } catch (error) {
     logger.error("[Aggregator] Failed to process incoming sensor message:", error);
-    // Acknowledge to prevent poison pill message from choking the queue
-    channel.ack(message);
   }
 };
 

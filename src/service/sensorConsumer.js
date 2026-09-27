@@ -13,16 +13,35 @@ export const startSensorConsumer = async () => {
 
     logger.info(`[SensorConsumer] Standby listening on queue: ${queueName}`);
 
-    channel.consume(queueName, (message) => {
+    channel.consume(queueName, async (message) => {
       if (!message) return;
 
       try {
         const content = message.content.toString();
-        const parsedData = JSON.parse(content);
+        let parsedData;
+
+        try {
+          parsedData = JSON.parse(content);
+        } catch (jsonErr) {
+          const routingKey = message.fields?.routingKey || "unknown";
+          logger.warn(
+            `[SensorConsumer] Non-JSON payload dropped on '${routingKey}': "${content.slice(0, 100)}" (${jsonErr.message})`,
+          );
+          channel.ack(message);
+          return;
+        }
+
+        if (typeof parsedData !== "object" || parsedData === null) {
+          logger.warn(
+            `[SensorConsumer] Ignored non-object payload: "${content.slice(0, 100)}"`,
+          );
+          channel.ack(message);
+          return;
+        }
 
         // Extract MAC address from routingKey if not present in payload
         if (!parsedData.macAddress && !parsedData.mac && !parsedData.macaddress) {
-          const routingKey = message.fields.routingKey || "";
+          const routingKey = message.fields?.routingKey || "";
           const parts = routingKey.split(/[./]/);
           if (parts.length >= 2) {
             parsedData.macAddress = parts[1];
@@ -31,13 +50,14 @@ export const startSensorConsumer = async () => {
           }
         }
 
-        processSensorData(parsedData, message, channel);
+        await processSensorData(parsedData);
+        channel.ack(message);
       } catch (error) {
-        logger.error("[SensorConsumer] Malformed JSON payload received, removing message:", error.message);
+        logger.error("[SensorConsumer] Error processing sensor payload:", error.message || error);
         channel.ack(message);
       }
     });
   } catch (error) {
-    logger.error("[SensorConsumer] Failed to start Sensor Consumer:", error.message);
+    logger.error("[SensorConsumer] Failed to start Sensor Consumer:", error.message || error);
   }
 };

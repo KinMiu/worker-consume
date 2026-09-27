@@ -3,14 +3,14 @@ const getDevTime = () => {
 };
 
 const logger = {
-  info: (message) => {
-    console.log(`[INFO] ${getDevTime()} - ${message}`);
+  info: (...args) => {
+    console.log(`[INFO] ${getDevTime()} -`, ...args);
   },
-  error: (message) => {
-    console.log(`[ERROR] ${getDevTime()} - ${message}`);
+  error: (...args) => {
+    console.error(`[ERROR] ${getDevTime()} -`, ...args);
   },
-  warn: (message) => {
-    console.log(`[WARN] ${getDevTime()} - ${message}`);
+  warn: (...args) => {
+    console.warn(`[WARN] ${getDevTime()} -`, ...args);
   },
 };
 
