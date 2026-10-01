@@ -148,7 +148,7 @@ const flushBufferToDatabase = async () => {
       }
 
       logger.info(
-        `[Aggregator] Successfully flushed ${recordsToInsert.length} sensor records to DB (1-minute average for ${updatedDeviceIds.size} devices)`,
+        `[Aggregator] Successfully flushed ${recordsToInsert.length} sensor records to DB (5-minute average for ${updatedDeviceIds.size} devices)`,
       );
     } catch (error) {
       logger.error("[Aggregator] Error executing bulk insert to database:", error);
@@ -157,9 +157,9 @@ const flushBufferToDatabase = async () => {
 };
 
 /**
- * Initialize periodic 1-minute aggregation flush
+ * Initialize periodic 5-minute aggregation flush
  */
 export const initAggregator = () => {
-  logger.info("[Aggregator] In-Memory Sensor Aggregator Ready (60s Batch Interval)");
-  setInterval(flushBufferToDatabase, 60000);
+  logger.info("[Aggregator] In-Memory Sensor Aggregator Ready (5-Minute Batch Interval)");
+  setInterval(flushBufferToDatabase, 300000);
 };
